@@ -293,6 +293,7 @@ extern short GetATan2 (short AtanX, short AtanY);
 // SETUP: the main arduino setup function.
 //--------------------------------------------------------------------------
 void setup(){
+      
     int error;
 
     g_fShowDebugPrompt = true;
@@ -302,6 +303,10 @@ void setup(){
 #endif
     // Init our ServoDriver
     g_ServoDriver.Init();
+    
+    pinMode(7, INPUT);
+    if(!digitalRead(7))
+      g_ServoDriver.SSCForwarder();
 
    //Checks to see if our Servo Driver support a GP Player
 //    DBGSerial.write("Program Start\n\r");

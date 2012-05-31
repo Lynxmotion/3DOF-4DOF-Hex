@@ -296,11 +296,13 @@ void ServoDriver::FreeServos(void)
 #ifdef OPT_SSC_FORWARDER
 void  ServoDriver::SSCForwarder(void) 
 {
+    MSound(SOUND_PIN, 1, 1000, 2000);  //sound SOUND_PIN, [50\4000]
+    delay(2000);
     int sChar;
-    int sPrevChar; 
+    int sPrevChar;
     DBGSerial.println("SSC Forwarder mode - Enter $<cr> to exit");
     
-    for (;;) {
+    while(digitalRead(7)) {
         if ((sChar = DBGSerial.read()) != -1) {
             SSCSerial.write(sChar & 0xff);
             if (((sChar == '\n') || (sChar == '\r')) && (sPrevChar == '$'))
