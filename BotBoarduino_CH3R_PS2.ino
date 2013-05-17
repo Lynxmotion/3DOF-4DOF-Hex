@@ -9,6 +9,8 @@
 // This version of the Phoenix code was ported over to the Arduino Environement
 // and is specifically configured for the Lynxmotion BotBoarduino 
 //
+//NEW IN V2.1 (2013-05-17)
+//   - setup() made more generic by replacing exact pin-n° by PS2_CMD
 //NEW IN V2.X
 //=============================================================================
 //
@@ -304,8 +306,8 @@ void setup(){
     // Init our ServoDriver
     g_ServoDriver.Init();
     
-    pinMode(7, INPUT);
-    if(!digitalRead(7))
+    pinMode(PS2_CMD, INPUT);
+    if(!digitalRead(PS2_CMD))
       g_ServoDriver.SSCForwarder();
 
    //Checks to see if our Servo Driver support a GP Player

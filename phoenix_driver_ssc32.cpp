@@ -302,7 +302,7 @@ void  ServoDriver::SSCForwarder(void)
     int sPrevChar;
     DBGSerial.println("SSC Forwarder mode - Enter $<cr> to exit");
     
-    while(digitalRead(7)) {
+    while(digitalRead(PS2_CMD)) {
         if ((sChar = DBGSerial.read()) != -1) {
             SSCSerial.write(sChar & 0xff);
             if (((sChar == '\n') || (sChar == '\r')) && (sPrevChar == '$'))
