@@ -393,7 +393,8 @@ void InputController::ControlInput(void)
           g_sPS2ErrorCnt++;    // Increment the error count and if to many errors, turn off the robot.
       else if (g_InControlState.fHexOn)
           PS2TurnRobotOff();
-       ps2x.reconfig_gamepad();
+       //This line is only required for use with older version of the PS2 library.
+       //ps2x.reconfig_gamepad();
     }
 }
 
