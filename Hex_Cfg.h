@@ -30,8 +30,8 @@
 #define OPT_TERMINAL_MONITOR  
 
 //uncomment the board you want to use
-//#define __BOTBOARDUINO__    //botboarduino board
-#define __BOTBOARD_ARDUINOPROMINI__  //arduino pro mini on botboard (originally for BasicAtomPro)
+#define __BOTBOARDUINO__    //botboarduino board
+//#define __BOTBOARD_ARDUINOPROMINI__  //arduino pro mini on botboard (originally for BasicAtomPro)
 
 //====================================================================
 #ifdef OPT_TERMINAL_MONITOR   // turning off terminal monitor will turn these off as well...
