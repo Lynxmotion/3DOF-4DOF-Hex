@@ -266,7 +266,7 @@ void ServoDriver::CommitServoDriver(word wMoveTime)
 #else
       //Send <CR>
     SSCSerial.print("T");
-    SSCSerial.println(ServoMoveTime, DEC);
+    SSCSerial.println(wMoveTime, DEC);
 #endif
 
     g_InputController.AllowControllerInterrupts(true);    

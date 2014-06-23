@@ -57,7 +57,7 @@
 // CHR-3
 //==================================================================================================================================
 #define USE_SSC32
-#define	cSSC_BINARYMODE	1			// Define if your SSC-32 card supports binary mode.
+//#define	cSSC_BINARYMODE	1			// Define if your SSC-32 card supports binary mode.
 
 //[SERIAL CONNECTIONS]
 
