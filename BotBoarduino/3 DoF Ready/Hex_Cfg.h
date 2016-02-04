@@ -24,7 +24,10 @@
 //==================================================================================================================================
 //==================================================================================================================================
 //[CONDITIONAL COMPILING] - COMMENT IF NOT WANTED
-// Define other optional compnents to be included or not...
+// Define other optional components to be included or not...
+
+//uncomment the following line to activate 4 DoF
+//#define c4DOF
 
 //comment if terminal monitor is not required
 #define OPT_TERMINAL_MONITOR  
