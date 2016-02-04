@@ -1,36 +1,32 @@
+;USE_IDLEPROC con 1
 ;Project Lynxmotion Phoenix
 ;Description: Phoenix software
-;Software version: V2.0
-;Date: 29-10-2009
+;Software version: V2.1 alfa
+;Date: 19-04-2011
 ;Programmer: Jeroen Janssen (aka Xan)
 ;
 ;Hardware setup: ABB2 with ATOM 28 Pro, SSC32 V2
 ;
-;NEW IN V2.0
-;	- Moved to fixed point calculations
-;	- Inverted BodyRotX and BodyRotZ direction
-;	- Added deadzone for switching gaits
-;	- Added GP Player
-;	- SSC version check to enable/disable GP player
-;	- Controls changed, Check contol file for more information
-;	- Added separate files for control and configuration functions
-;	- Solved bug at turn-off sequence
-;	- Solved bug about legs beeing lift at small travelvalues in 4 steps tripod gait
-;	- Solved bug about body translate results in rotate when balance is on (Kåre)
-;	- Sequence for wave gait changed (Kåre)
-;	- Improved ATan2 function for IK (Kåre)
-;	- Added option to turn on/off eyes (leds)
-;	- Moving legs to init position improved
-;	- Using Indexed values for legs
-;	- Added single leg control
+;NEW IN V2.1
+;	- Improved SSC sync function (Kåre)
+;	- Added a commit function for the SSC
+;	- Changed SSC command set to binary mode (Kurt)
+;	- Added new gaits and improved gait engine with 5 lifted leg positions (Kåre)
+;	- Added support for different leg lengths
+;	- Optional 4DOF (Configure at cfg file)
+;	- Single point of configuration for the Angle to PWM calculations (Kåre)
+;	- Optional Safety turn off when voltage drops below setpoint
+;	- Moved SSC and BAP timer functions to a separate Driver file
+;	- Variable speed for GP sequences
 ;
 ;KNOWN BUGS:
 ;	- None at the moment ;)
 ;
 ;Project file order:
-;	1. Phoenix_cfg.bas
-;	2. Phoenix_V2x.bas
+;	1. Phoenix_Config_xxx.bas
+;	2. Phoenix_Core.bas
 ;	3. Phoenix_Control_xxx.bas
+;	4. Phoenix_Driver_xxx.bas
 ;====================================================================
 ;[CONSTANTS]
 BUTTON_DOWN con 0
@@ -88,6 +84,15 @@ GetSin wordtable 0, 87, 174, 261, 348, 436, 523, 610, 697, 784, 871, 958, 1045, 
 cCoxaPin 	byteTable cRRCoxaPin,  cRMCoxaPin,  cRFCoxaPin,  cLRCoxaPin,  cLMCoxaPin,  cLFCoxaPin
 cFemurPin 	byteTable cRRFemurPin, cRMFemurPin, cRFFemurPin, cLRFemurPin, cLMFemurPin, cLFFemurPin
 cTibiaPin 	byteTable cRRTibiaPin, cRMTibiaPin, cRFTibiaPin, cLRTibiaPin, cLMTibiaPin, cLFTibiaPin
+#ifdef c4DOF
+cTarsPin 	byteTable cRRTarsPin, cRMTarsPin, cRFTarsPin, cLRTarsPin, cLMTarsPin, cLFTarsPin
+#endif
+
+; Servo Offset Table
+cFemurHornOffset1 	swordTable cRRFemurHornOffset1,  cRMFemurHornOffset1,  cRFFemurHornOffset1,  cLRFemurHornOffset1,  cLMFemurHornOffset1,  cLFFemurHornOffset1
+#ifdef c4DOF
+cTarsHornOffset1 	swordTable cRRTarsHornOffset1,  cRMTarsHornOffset1,  cRFTarsHornOffset1,  cLRTarsHornOffset1,  cLMTarsHornOffset1,  cLFTarsHornOffset1
+#endif
 
 ;Min / Max values
 cCoxaMin1 	swordTable cRRCoxaMin1,  cRMCoxaMin1,  cRFCoxaMin1,  cLRCoxaMin1,  cLMCoxaMin1,  cLFCoxaMin1
@@ -96,6 +101,18 @@ cFemurMin1 	swordTable cRRFemurMin1, cRMFemurMin1, cRFFemurMin1, cLRFemurMin1, c
 cFemurMax1 	swordTable cRRFemurMax1, cRMFemurMax1, cRFFemurMax1, cLRFemurMax1, cLMFemurMax1, cLFFemurMax1
 cTibiaMin1 	swordTable cRRTibiaMin1, cRMTibiaMin1, cRFTibiaMin1, cLRTibiaMin1, cLMTibiaMin1, cLFTibiaMin1
 cTibiaMax1 	swordTable cRRTibiaMax1, cRMTibiaMax1, cRFTibiaMax1, cLRTibiaMax1, cLMTibiaMax1, cLFTibiaMax1
+#ifdef c4DOF
+cTarsMin1 	swordTable cRRTarsMin1, cRMTarsMin1, cRFTarsMin1, cLRTarsMin1, cLMTarsMin1, cLFTarsMin1
+cTarsMax1 	swordTable cRRTarsMax1, cRMTarsMax1, cRFTarsMax1, cLRTarsMax1, cLMTarsMax1, cLFTarsMax1
+#endif
+
+;Leg Lengths
+cCoxaLength  sbyteTable cRRCoxaLength,  cRMCoxaLength,  cRFCoxaLength,  cLRCoxaLength,  cLMCoxaLength,  cLFCoxaLength
+cFemurLength sbyteTable cRRFemurLength, cRMFemurLength, cRFFemurLength, cLRFemurLength, cLMFemurLength, cLFFemurLength
+cTibiaLength sbyteTable cRRTibiaLength, cRMTibiaLength, cRFTibiaLength, cLRTibiaLength, cLMTibiaLength, cLFTibiaLength
+#ifdef c4DOF
+cTarsLength	 sbytetable cRRTarsLength, cRMTarsLength, cRFTarsLength, cLRTarsLength, cLMTarsLength, cLFTarsLength
+#endif
 
 ;Body Offsets (distance between the center of the body and the center of the coxa)
 cOffsetX	sbyteTable cRROffsetX, cRMOffsetX, cRFOffsetX, cLROffsetX, cLMOffsetX, cLFOffsetX
@@ -116,6 +133,9 @@ cTravelDeadZone	con 4	;The deadzone for the analog input from the remote
 CoxaAngle1		var sword(6)	;Actual Angle of the horizontal hip, decimals = 1
 FemurAngle1		var sword(6)	;Actual Angle of the vertical hip, decimals = 1
 TibiaAngle1		var sword(6)	;Actual Angle of the knee, decimals = 1
+#ifdef c4DOF
+TarsAngle1		var sword(6)	;Actual Angle of the knee, decimals = 1
+#endif
 ;--------------------------------------------------------------------
 ;[POSITIONS SINGLE LEG CONTROL]
 SLHold	var bit		 	;Single leg control mode
@@ -134,10 +154,11 @@ prev_butB var bit
 prev_butC var bit
 ;--------------------------------------------------------------------
 ;[GP PLAYER]
-GPStart		var bit			;Start the GP Player
+GPStart		var byte		;Start the GP Player
 GPSeq		var byte		;Number of the sequence
 GPVerData	var byte(3)		;Received data to check the SSC Version
 GPEnable	var bit			;Enables the GP player when the SSC version ends with "GP<cr>"
+GPSM		var sword		;Speed Multiply ratio +- 200
 ;--------------------------------------------------------------------
 ;[OUTPUTS]
 LedA var bit	;Red
@@ -168,10 +189,10 @@ BodyPosX 		var sbyte		;Global Input for the position of the body
 BodyPosY 		var sword
 BodyPosZ 		var sbyte
 
-;Body Inverse Kinematics
-BodyRotX 				var sbyte ;Global Input pitch of the body
-BodyRotY				var sbyte ;Global Input rotation of the body
-BodyRotZ  				var sbyte ;Global Input roll of the body
+;Body Forward Rotation Kinematics
+BodyRotX1 				var sword ;Global Input pitch of the body
+BodyRotY1				var sword ;Global Input rotation of the body
+BodyRotZ1  				var sword ;Global Input roll of the body
 PosX					var sword ;Input position of the feet X
 PosZ					var sword ;Input position of the feet Z
 PosY					var sword ;Input position of the feet Y
@@ -182,17 +203,31 @@ sinB4          			var sword ;Sin buffer for BodyRotX calculations
 cosB4          			var sword ;Cos buffer for BodyRotX calculations
 sinG4          			var sword ;Sin buffer for BodyRotZ calculations
 cosG4          			var sword ;Cos buffer for BodyRotZ calculations
-TotalX					var sword ;Total X distance between the center of the body and the feet
-TotalZ					var sword ;Total Z distance between the center of the body and the feet
-BodyIKPosX				var sword ;Output Position X of feet with Rotation
-BodyIKPosY				var sword ;Output Position Y of feet with Rotation
-BodyIKPosZ				var sword ;Output Position Z of feet with Rotation
+CPR_X					var sword ;Center Point of Rotation for the body on X axis
+CPR_Y					var sword ;Center Point of Rotation for the body on Y axis
+CPR_Z					var sword ;Center Point of Rotation for the body on Z axis
+BodyFKPosX				var sword ;Output Position X of feet with Rotation
+BodyFKPosY				var sword ;Output Position Y of feet with Rotation
+BodyFKPosZ				var sword ;Output Position Z of feet with Rotation
+BodyRotOffsetX			var sword ;Offset for the Center Point of Rotation for the body
+BodyRotOffsetY			var sword ;Offset for the Center Point of Rotation for the body
+BodyRotOffsetZ			var sword ;Offset for the Center Point of Rotation for the body
 
 ;Leg Inverse Kinematics
 IKFeetPosX	    	var sword	;Input position of the Feet X
 IKFeetPosY	    	var sword	;Input position of the Feet Y
 IKFeetPosZ			var sword	;Input Position of the Feet Z
 IKFeetPosXZ			var sword	;Diagonal direction from Input X and Z
+#ifdef c4DOF
+TarsOffsetXZ		var sword	;Vector value \ ;
+TarsOffsetY			var sword	;Vector value / The 2 DOF IK calcs (femur and tibia) are based upon these vectors
+TarsToGroundAngle1	var sword   ;Angle between tars and ground. Note: the angle are 0 when the tars are perpendicular to the ground
+TGA_A_H4			var sword
+TGA_B_H3			var sword
+#else
+TarsOffsetXZ		con 0		;Vector value \ ;
+TarsOffsetY			con 0		;Vector value / The 2 DOF IK calcs (femur and tibia) are based upon these vectors
+#endif
 IKSW2				var long	;Length between Shoulder and Wrist, decimals = 2
 IKA14		    	var long	;Angle of the line S>W with respect to the ground in radians, decimals = 4
 IKA24		    	var long	;Angle of the line S>W with respect to the femur in radians, decimals = 4
@@ -203,7 +238,6 @@ IKSolutionWarning 	var bit		;Output true if the solution is NEARLY possible
 IKSolutionError		var bit		;Output true if the solution is NOT possible
 ;--------------------------------------------------------------------
 ;[TIMING]
-wTimerWOverflowCnt	var word    ;used in WTimer overflow. Will keep a 16 bit overflow so we have a 32 bit timer 
 lCurrentTime		var long	
 lTimerStart			var long	;Start time of the calculation cycles
 lTimerEnd			var long 	;End time of the calculation cycles
@@ -216,17 +250,20 @@ InputTimeDelay		var byte	;Delay that depends on the input to get the "sneaking" 
 SpeedControl		var word	;Adjustible Delay
 ;--------------------------------------------------------------------
 ;[GLOABAL]
-HexOn	 	var bit			;Switch to turn on Phoenix
-Prev_HexOn	var bit			;Previous loop state 
+HexOn	 			var bit		;Switch to turn on Phoenix
+Prev_HexOn			var bit		;Previous loop state 
+
+SafetyShutDown 		var bit		;If 1 the bot shuts down because the input voltage is to low
+Voltage				var word	;Voltage value
 ;--------------------------------------------------------------------
 ;[Balance]
 BalanceMode			var bit
 TotalTransX			var sword
 TotalTransZ			var sword
 TotalTransY			var sword
-TotalYbal			var sword
-TotalXBal			var sword
-TotalZBal			var sword
+TotalYbal1			var sword
+TotalXBal1			var sword
+TotalZBal1			var sword
 TotalY				var sword ;Total Y distance between the center of the body and the feet
 
 ;[Single Leg Control]
@@ -238,6 +275,7 @@ SLLegZ				var sword
 AllDown				var bit
 
 ;[gait]
+NrOfGaits		var nib		;Current amount of Gaits in program
 GaitType		var byte	;Gait type
 NomGaitSpeed	var byte	;Nominal speed of the gait
 
@@ -248,9 +286,10 @@ TravelRotationY var sword	;Current Travel Rotation Y
 
 TLDivFactor		var byte	;Number of steps that a leg is on the floor while walking
 NrLiftedPos   	var nib		;Number of positions that a single leg is lifted (1-3)
-HalfLiftHeigth	var bit		;If TRUE the outer positions of the ligted legs will be half height	
+HalfLiftHeigth	var nib		;3/3, 3/6, 3/4 the outer positions of the ligted legs will be half height
+LiftDivFactor	var nib		;Normaly: 2, when NrLiftedPos=5: 4
 
-GaitInMotion 	var bit		;Temp to check if the gait is in motion
+TravelRequest 	var bit		;Temp to check if the gait is in motion
 StepsInGait		var byte	;Number of steps in gait
 LastLeg 		var bit		;TRUE when the current leg is the last leg of the sequence
 GaitStep 	 	var byte	;Actual Gait step
@@ -263,29 +302,16 @@ GaitPosX 		var sbyte(6) ;Array containing Relative X position corresponding to t
 GaitPosY 		var sbyte(6) ;Array containing Relative Y position corresponding to the Gait
 GaitPosZ 		var sbyte(6) ;Array containing Relative Z position corresponding to the Gait
 GaitRotY 		var sbyte(6) ;Array containing Relative Y rotation corresponding to the Gait
-;====================================================================
-;[TIMER INTERRUPT INIT]
-ONASMINTERRUPT TIMERWINT, Handle_TIMERW 
+
+GaitPeak		var byte	; Saving the largest (ABS) peak value from GaitPosX,Y,Z and GaitRotY
+Walking			var bit		; True if the robot are walking
+
 ;====================================================================
 ;[INIT]
 
 ;Checks SSC version number if it ends with "GP"
 ;enable the GP player if it does
-pause 10
-GPEnable=0
-serout cSSC_OUT, cSSC_BAUD, ["ver", 13]
-
-GetSSCVersion:
-serin cSSC_IN, cSSC_BAUD, 1000, timeout, [GPVerData(Index)]
-Index = (Index+1)//3 ; shift last 3 chars in data
-goto GetSSCVersion
-
-timeout:
-if (GPVerData(0) + GPVerData(1) + GPVerData(2)) = 164 then ; Check if the last 3 chars are G(71) P(80) cr(13)
-  GPEnable = 1
-else
-  sound P9, [40\5000,40\5000]
-endif
+GOSUB CheckGPEnable[], GPEnable
 pause 10
 
 ;Turning off all the leds
@@ -311,9 +337,9 @@ BodyPosY = 0
 BodyPosZ = 0
 
 ;Body Rotations
-BodyRotX = 0
-BodyRotY = 0
-BodyRotZ = 0
+BodyRotX1 = 0
+BodyRotY1 = 0
+BodyRotZ1 = 0
 
 ;Gait
 GaitType = 0
@@ -322,20 +348,22 @@ LegLiftHeight = 50
 GaitStep = 1
 GOSUB GaitSelect
 
-;Timer
-WTIMERTICSPERMS con 2000; we have 16 clocks per ms and we are incrementing every 8 so divide again by 2 
-TCRW = 0x30 			;clears TCNT and sets the timer to inc clock cycle / 8 
-TMRW = 0x80 			;starts the timer counting 
-wTimerWOverflowCnt = 0 
-enable TIMERWINT_OVF 	;enable timer interrupt
+;Initialize Timer
+GOSUB InitTimer
 enable					;enables all interrupts
 
 ;Initialize Controller
 gosub InitController
 
+#ifdef USE_IDLEPROC
+gosub InitIdleProc
+#endif
+
 ;SSC
 SSCTime = 150
 HexOn = 0
+SafetyShutDown = 0 
+GPSM = 100		; default to 100 percent of the speed 
 ;====================================================================
 ;[MAIN]	
 main:
@@ -344,15 +372,19 @@ main:
   GOSUB GetCurrentTime[], lTimerStart 
   
   ;Read input
-  GOSUB ControlInput
-  ;GOSUB ReadButtons	;I/O used by the remote
+  IF NOT SafetyShutDown THEN
+  	GOSUB ControlInput	
+    GOSUB ReadButtons	;I/O used by the remote
+  ENDIF  
   GOSUB WriteOutputs	;Write Outputs
+  GOSUB CheckVoltage	;Check input voltage
 
   ;GP Player
   IF GPEnable THEN
     GOSUB GPPlayer
+    IF GPStart <> 0 THEN Main
   ENDIF
-
+  
   ;Single leg control
   GOSUB SingleLegControl 
 
@@ -363,9 +395,9 @@ main:
   TotalTransX = 0 'reset values used for calculation of balance
   TotalTransZ = 0
   TotalTransY = 0
-  TotalXBal = 0
-  TotalYBal = 0
-  TotalZBal = 0
+  TotalXBal1 = 0
+  TotalYBal1 = 0
+  TotalZBal1 = 0
   IF (BalanceMode>0) THEN
     for LegIndex = 0 to 2	; balance calculations for all Right legs
       gosub BalCalcOneLeg [-LegPosX(LegIndex)+GaitPosX(LegIndex), |
@@ -390,24 +422,24 @@ main:
 
   ;Do IK for all Right legs
   for LegIndex = 0 to 2	
-	  GOSUB BodyIK [-LegPosX(LegIndex)+BodyPosX+GaitPosX(LegIndex) - TotalTransX, |
+	  GOSUB BodyFK [-LegPosX(LegIndex)+BodyPosX+GaitPosX(LegIndex) - TotalTransX, |
 	  				 LegPosZ(LegIndex)+BodyPosZ+GaitPosZ(LegIndex) - TotalTransZ, |
 	  				 LegPosY(LegIndex)+BodyPosY+GaitPosY(LegIndex) - TotalTransY, |
 	  				 GaitRotY(LegIndex), LegIndex] 
-	  GOSUB LegIK [LegPosX(LegIndex)-BodyPosX+BodyIKPosX-(GaitPosX(LegIndex) - TotalTransX), |
-	  				LegPosY(LegIndex)+BodyPosY-BodyIKPosY+GaitPosY(LegIndex) - TotalTransY, |
-	  				LegPosZ(LegIndex)+BodyPosZ-BodyIKPosZ+GaitPosZ(LegIndex) - TotalTransZ, LegIndex]    
+	  GOSUB LegIK [LegPosX(LegIndex)-BodyPosX+BodyFKPosX-(GaitPosX(LegIndex) - TotalTransX), |
+	  				LegPosY(LegIndex)+BodyPosY-BodyFKPosY+GaitPosY(LegIndex) - TotalTransY, |
+	  				LegPosZ(LegIndex)+BodyPosZ-BodyFKPosZ+GaitPosZ(LegIndex) - TotalTransZ, LegIndex]    
   next  
   
   ;Do IK for all Left legs  
   for LegIndex = 3 to 5	
-	  GOSUB BodyIK [LegPosX(LegIndex)-BodyPosX+GaitPosX(LegIndex) - TotalTransX, |
+	  GOSUB BodyFK [LegPosX(LegIndex)-BodyPosX+GaitPosX(LegIndex) - TotalTransX, |
 	  				LegPosZ(LegIndex)+BodyPosZ+GaitPosZ(LegIndex) - TotalTransZ, |
 	  				LegPosY(LegIndex)+BodyPosY+GaitPosY(LegIndex) - TotalTransY, |
 	  				GaitRotY(LegIndex), LegIndex] 
-	  GOSUB LegIK [LegPosX(LegIndex)+BodyPosX-BodyIKPosX+GaitPosX(LegIndex) - TotalTransX, |
-	  				LegPosY(LegIndex)+BodyPosY-BodyIKPosY+GaitPosY(LegIndex) - TotalTransY, |
-	  				LegPosZ(LegIndex)+BodyPosZ-BodyIKPosZ+GaitPosZ(LegIndex) - TotalTransZ, LegIndex] 
+	  GOSUB LegIK [LegPosX(LegIndex)+BodyPosX-BodyFKPosX+GaitPosX(LegIndex) - TotalTransX, |
+	  				LegPosY(LegIndex)+BodyPosY-BodyFKPosY+GaitPosY(LegIndex) - TotalTransY, |
+	  				LegPosZ(LegIndex)+BodyPosZ-BodyFKPosZ+GaitPosZ(LegIndex) - TotalTransZ, LegIndex] 
   next
   
   ;Check mechanical limits
@@ -418,9 +450,9 @@ main:
   LedA = IKSolutionError
 
   ;Drive Servos
-  IF HexOn THEN  
+  IF HexOn THEN
     IF HexOn AND Prev_HexOn=0 THEN
-      Sound P9,[60\4000,80\4500,100\5000]
+      Sound cSpeakerPin,[60\4000,80\4500,100\5000]
       Eyes = 1
   	ENDIF
 
@@ -437,36 +469,60 @@ main:
 	  SSCTime = 200 + SpeedControl
   	ENDIF
 
-    ;Sync BAP with SSC while walking to ensure the prev is completed before sending the next one
-  	IF (GaitPosX(cRF) OR GaitPosX(cRM) OR GaitPosX(cRR) OR GaitPosX(cLF) OR GaitPosX(cLM) OR GaitPosX(cLR)  OR  |
-  		GaitPosY(cRF) OR GaitPosY(cRM) OR GaitPosY(cRR) OR GaitPosY(cLF) OR GaitPosY(cLM) OR GaitPosY(cLR)  OR  |
-  		GaitPosZ(cRF) OR GaitPosZ(cRM) OR GaitPosZ(cRR) OR GaitPosZ(cLF) OR GaitPosZ(cLM) OR GaitPosZ(cLR)  OR  |
-  		GaitRotY(cRF) OR GaitRotY(cRM) OR GaitRotY(cRR) OR GaitRotY(cLF) OR GaitRotY(cLM) OR GaitRotY(cLR)) THEN
-  		
-  	  ;Get endtime and calculate wait time
-      GOSUB GetCurrentTime[], lTimerEnd	
-      CycleTime = (lTimerEnd-lTimerStart)/WTIMERTICSPERMS 
+	; Update servo positions without commiting
+	GOSUB UpdateServoDriver 
 
-  	  ;Wait for previous commands to be completed while walking
-	  pause (PrevSSCTime - CycleTime - 45) MIN 1 ;	Min 1 ensures that there alway is a value in the pause command  
-  	ENDIF
+   ;Sync BAP with SSC while walking to ensure the prev is completed before sending the next one
+   GaitPeak = 0 ;Reset
+   LegIndex = 0
+    ; Finding any the biggest value for GaitPos/Rot:
+   WHILE (LegIndex < 6) AND NOT (GaitPeak > 2);Walking 
+      GaitPeak = ABS(GaitPosX(LegIndex)) MIN |
+               ABS(GaitPosY(LegIndex)) MIN |
+               ABS(GaitPosZ(LegIndex)) MIN |
+               ABS(GaitRotY(LegIndex)) MIN |
+               GaitPeak
+      
+      LegIndex = LegIndex+1
+   WEND
 
-	GOSUB ServoDriver  		
+   IF (GaitPeak > 2)  or Walking THEN ; Walking, sync required
+      Walking = (GaitPeak > 2)      ; This make sure the last walking cycle to be synced
+       ;Get endtime and calculate wait time
+      GOSUB GetCurrentTime[], lTimerEnd   
+      GOSUB ConvertTimeMS[lTimerEnd-lTimerStart], CycleTime
 
-  ELSE
+       ;Wait for previous commands to be completed while walking
+     pause (PrevSSCTime - CycleTime) MIN 1 ;   Min 1 ensures that there alway is a value in the pause command  
+   ENDIF
+
+   ; Commit servo positions - Note: moved here by Kurt
+   GOSUB CommitServoDriver  
+
+ ELSE
   
     ;Turn the bot off
     IF (Prev_HexOn OR NOT AllDown) THEN
       SSCTime = 600
-      GOSUB ServoDriver
-      Sound P9,[100\5000,80\4500,60\4000]      
+      GOSUB UpdateServoDriver
+   	  GOSUB CommitServoDriver ;Send commit before pause command
+      Sound cSpeakerPin,[100\5000,80\4500,60\4000]      
       pause 600
     ELSE   
 	  GOSUB FreeServos
 	  Eyes = 0
     ENDIF
+#ifdef USE_IDLEPROC
+	gosub IdleProc
+#endif
+
+
   ENDIF	
-  
+
+#ifdef NeededHere ;???  
+  ; Commit servo positions
+  GOSUB CommitServoDriver  
+#endif  
   ;Store previous HexOn State
   IF HexOn THEN
     Prev_HexOn = 1
@@ -495,15 +551,15 @@ return
 ;--------------------------------------------------------------------
 ;[WriteOutputs] Updates the state of the leds
 WriteOutputs:
-;  IF ledA = 1 THEN
-;	low p4
-;  ENDIF
-;  IF ledB = 1 THEN
-;	low p5
-;  ENDIF
-;  IF ledC = 1 THEN
-;	low p6
-;  ENDIF
+  IF ledA = 1 THEN
+	low p4
+  ENDIF
+  IF ledB = 1 THEN
+	low p5
+  ENDIF
+  IF ledC = 1 THEN
+	low p6
+  ENDIF
   IF Eyes = 0 THEN
     low cEyesPin
   ELSE
@@ -511,29 +567,35 @@ WriteOutputs:
   ENDIF
 return
 ;--------------------------------------------------------------------
-;[GP PLAYER]
-GPStatSeq 		var byte
-GPStatFromStep 	var byte
-GPStatToStep	var byte
-GPStatTime		var byte
-GPPlayer:
-
-  ;Start sequence
-  IF (GPStart=1) THEN
-    serout cSSC_OUT, cSSC_BAUD, ["PL0SQ", dec GPSeq, "ONCE", 13] ;Start sequence
-    
-	;Wait for GPPlayer to complete sequence    
-GPWait:
-	serout cSSC_OUT, cSSC_BAUD, ["QPL0", 13] 
-	serin cSSC_IN, cSSC_BAUD, [GPStatSeq, GPStatFromStep, GPStatToStep, GPStatTime]
-	    
-	IF (GPStatSeq<>255 | GPStatFromStep<>0 | GPStatToStep<>0 | GPStatTime<>0) THEN
-	  GOTO GPWait ;Continue waiting
+;[CHECK VOLTAGE]
+;Reads the input voltage and shuts down the bot when the power drops
+CheckVoltage:
+#IFDEF cTurnOffVol
+	adin cVoltagePin, Voltage ; Battery voltage
+	Voltage = (Voltage*1955)/1000
+	
+	IF (NOT SafetyShutDown) THEN
+		IF (Voltage < cTurnOffVol) OR (Voltage >= 1999) THEN
+			;Turn off
+	  		BodyPosX = 0
+	  		BodyPosY = 0
+	  		BodyPosZ = 0
+	  		BodyRotX = 0
+	  		BodyRotY = 0
+	  		BodyRotZ = 0
+	  		TravelLengthX = 0
+	  		TravelLengthZ = 0
+	  		TravelRotationY = 0
+	  		SelectedLeg = 255
+		
+	  		SafetyShutDown = 1
+	  		HexOn = 0
+		ENDIF
+	ELSE
+	  Sound cSpeakerPin,[45\1000]
+      pause 2000
 	ENDIF
-  
-    GPStart=0
-  ENDIF    
-
+#ENDIF	
 return
 ;--------------------------------------------------------------------
 ;[SINGLE LEG CONTROL]
@@ -580,23 +642,14 @@ SingleLegControl
 return
 ;--------------------------------------------------------------------
 GaitSelect
-  ;Gait selector
-  IF (GaitType = 0) THEN ;Ripple Gait 6 steps
-	GaitLegNr(cLR) = 1
-	GaitLegNr(cRF) = 2	
-	GaitLegNr(cLM) = 3	  
-	GaitLegNr(cRR) = 4	  
-	GaitLegNr(cLF) = 5	  
-	GaitLegNr(cRM) = 6
-	  	    
-	NrLiftedPos = 1
-	HalfLiftHeigth = 0	
-	TLDivFactor = 4
-	StepsInGait = 6
-	NomGaitSpeed = 100
-  ENDIF  
-    
-  IF (GaitType = 1) THEN ;Ripple Gait 12 steps
+  ;Configure number of gaits in code
+  NrOfGaits = 5
+
+  ;Gait selector  
+  Branch GaitType, [Ripple12, Tripod8, Tripod12, Tripod16, Wave24]
+  return ;index of GaitType does not exist
+
+  Ripple12: ;Ripple Gait 12 steps
 	GaitLegNr(cLR) = 1
 	GaitLegNr(cRF) = 3
 	GaitLegNr(cLM) = 5
@@ -605,58 +658,13 @@ GaitSelect
 	GaitLegNr(cRM) = 11
 
 	NrLiftedPos = 3
-	HalfLiftHeigth = 0;1
+	HalfLiftHeigth = 3 ; -LegLiftHeight/2 
 	TLDivFactor = 8	  
 	StepsInGait = 12	
-    NomGaitSpeed = 85
-  ENDIF
-    
-  IF (GaitType = 2) THEN ;Quadripple 9 steps
-	GaitLegNr(cLR) = 1    
-	GaitLegNr(cRF) = 2
-	GaitLegNr(cLM) = 4	  
-  	GaitLegNr(cRR) = 5
-	GaitLegNr(cLF) = 7
-	GaitLegNr(cRM) = 8
-	  
-	NrLiftedPos = 2
-	HalfLiftHeigth = 0	
-	TLDivFactor = 6	  
-	StepsInGait = 9	    
-    NomGaitSpeed = 100
-  ENDIF    
- 
-  IF (GaitType = 3) THEN ;Tripod 4 steps
-	GaitLegNr(cLR) = 3    
-	GaitLegNr(cRF) = 1
-	GaitLegNr(cLM) = 1
-	GaitLegNr(cRR) = 1
-	GaitLegNr(cLF) = 3
-	GaitLegNr(cRM) = 3
-	  
-	NrLiftedPos = 1	
-	HalfLiftHeigth = 0		
-	TLDivFactor = 2	  
-	StepsInGait = 4	    
-    NomGaitSpeed = 150
-  ENDIF
-    
-  IF (GaitType = 4) THEN ;Tripod 6 steps
-	GaitLegNr(cLR) = 4    
-	GaitLegNr(cRF) = 1
-	GaitLegNr(cLM) = 1
-	GaitLegNr(cRR) = 1
-	GaitLegNr(cLF) = 4
-	GaitLegNr(cRM) = 4
-	  
-	NrLiftedPos = 2
-	HalfLiftHeigth = 0	
-	TLDivFactor = 4	  
-	StepsInGait = 6	    
-    NomGaitSpeed = 100
-  ENDIF
+    NomGaitSpeed = 70
+  return
   
-  IF (GaitType = 5) THEN ;Tripod 8 steps
+  Tripod8: ;Tripod 8 steps
 	GaitLegNr(cLR) = 5
 	GaitLegNr(cRF) = 1
 	GaitLegNr(cLM) = 1
@@ -665,47 +673,71 @@ GaitSelect
 	GaitLegNr(cRM) = 5
 	  
 	NrLiftedPos = 3
-	HalfLiftHeigth = 1	
+	HalfLiftHeigth = 3; -LegLiftHeight/2 	
 	TLDivFactor = 4	  
 	StepsInGait = 8	    
-    NomGaitSpeed = 85
-  ENDIF
+    NomGaitSpeed = 70
+  return
   
-  IF (GaitType = 6) THEN ;Wave 12 steps
-	GaitLegNr(cLR) = 1
-	GaitLegNr(cRF) = 11
-	GaitLegNr(cLM) = 3
-
-	GaitLegNr(cRR) = 7
-	GaitLegNr(cLF) = 5
-	GaitLegNr(cRM) = 9
+  Tripod12: ;Triple Tripod 12 steps
+	GaitLegNr(cRF) = 3
+	GaitLegNr(cLM) = 4
+	GaitLegNr(cRR) = 5
+	GaitLegNr(cLF) = 9
+	GaitLegNr(cRM) = 10
+	GaitLegNr(cLR) = 11
 	  
-	NrLiftedPos = 1
-	HalfLiftHeigth = 0	
-	TLDivFactor = 10	  
+	NrLiftedPos = 3
+	HalfLiftHeigth = 3 	
+	TLDivFactor = 8  
 	StepsInGait = 12	    
-    NomGaitSpeed = 85
-  ENDIF    
+    NomGaitSpeed = 60
+  return
   
-  IF (GaitType = 7) THEN ;Wave 18 steps
-	GaitLegNr(cLR) = 4 
-	GaitLegNr(cRF) = 1
-	GaitLegNr(cLM) = 7
+  Tripod16: ;Triple Tripod 16 steps, use 5 lifted positions!
+	GaitLegNr(cRF) = 4
+	GaitLegNr(cLM) = 5
+	GaitLegNr(cRR) = 6
+	GaitLegNr(cLF) = 12
+	GaitLegNr(cRM) = 13
+	GaitLegNr(cLR) = 14
+	  
+	NrLiftedPos = 5
+	HalfLiftHeigth = 1 ;-LegLiftHeight*(3/4) 	
+	TLDivFactor = 10  
+	StepsInGait = 16	    
+    NomGaitSpeed = 60
+  return
+  
+  Wave24: ;Wave 24 steps
+	GaitLegNr(cLR) = 1
+	GaitLegNr(cRF) = 21
+	GaitLegNr(cLM) = 5
 
 	GaitLegNr(cRR) = 13
-	GaitLegNr(cLF) = 10
-	GaitLegNr(cRM) = 16
+	GaitLegNr(cLF) = 9
+	GaitLegNr(cRM) = 17
 	  
-	NrLiftedPos = 2
-	HalfLiftHeigth = 0	
-	TLDivFactor = 16	  
-	StepsInGait = 18	    
-    NomGaitSpeed = 85
-  ENDIF
-return
+	NrLiftedPos = 3
+	HalfLiftHeigth = 3	
+	TLDivFactor = 20	  
+	StepsInGait = 24	    
+    NomGaitSpeed = 70
+  return    
+
+return ;should never come here
 ;--------------------------------------------------------------------
 ;[GAIT Sequence]
 GaitSeq
+
+  ;Check IF the Gait is in motion
+  TravelRequest = ((ABS(TravelLengthX)>cTravelDeadZone) | (ABS(TravelLengthZ)>cTravelDeadZone) | (ABS(TravelRotationY)>cTravelDeadZone) )
+  IF NrLiftedPos = 5 THEN
+  	LiftDivFactor = 4
+  ELSE
+  	LiftDivFactor = 2
+  ENDIF
+
   ;Calculate Gait sequence
   LastLeg = 0
   for LegIndex = 0 to 5 ; for all legs
@@ -722,57 +754,62 @@ return
 GaitCurrentLegNr var nib
 Gait [GaitCurrentLegNr]
 
-  ;Check IF the Gait is in motion
-  GaitInMotion = ((ABS(TravelLengthX)>cTravelDeadZone) | (ABS(TravelLengthZ)>cTravelDeadZone) | (ABS(TravelRotationY)>cTravelDeadZone) )
-
   ;Clear values under the cTravelDeadZone
-  IF (GaitInMotion=0) THEN
+  IF (TravelRequest=0) THEN
     TravelLengthX=0
     TravelLengthZ=0
     TravelRotationY=0
   ENDIF
 
   ;Leg middle up position
-  	 ;Gait in motion														  Gait NOT in motion, return to home position
-  IF (GaitInMotion & (NrLiftedPos=1 | NrLiftedPos=3) & GaitStep=GaitLegNr(GaitCurrentLegNr)) | (NOT GaitInMotion & GaitStep=GaitLegNr(GaitCurrentLegNr) & ((ABS(GaitPosX(GaitCurrentLegNr))>2) | (ABS(GaitPosZ(GaitCurrentLegNr))>2) | (ABS(GaitRotY(GaitCurrentLegNr))>2))) THEN	;Up
+  	 ;Gait in motion														  									Gait NOT in motion, return to home position
+  IF (TravelRequest & (NrLiftedPos=1 | NrLiftedPos=3 | NrLiftedPos=5) & GaitStep=GaitLegNr(GaitCurrentLegNr)) | (NOT TravelRequest & GaitStep=GaitLegNr(GaitCurrentLegNr) & ((ABS(GaitPosX(GaitCurrentLegNr))>2) | (ABS(GaitPosZ(GaitCurrentLegNr))>2) | (ABS(GaitRotY(GaitCurrentLegNr))>2))) THEN	;Up
     GaitPosX(GaitCurrentLegNr) = 0
     GaitPosY(GaitCurrentLegNr) = -LegLiftHeight
     GaitPosZ(GaitCurrentLegNr) = 0
     GaitRotY(GaitCurrentLegNr) = 0
-  ELSE
 
-    ;Optional Half heigth Rear
-    IF ((NrLiftedPos=2 & GaitStep=GaitLegNr(GaitCurrentLegNr)) | (NrLiftedPos=3 & (GaitStep=GaitLegNr(GaitCurrentLegNr)-1 | GaitStep=GaitLegNr(GaitCurrentLegNr)+(StepsInGait-1)))) & GaitInMotion THEN
-	  GaitPosX(GaitCurrentLegNr) = -TravelLengthX/2
-      GaitPosY(GaitCurrentLegNr) = -LegLiftHeight/(HalfLiftHeigth+1)
-      GaitPosZ(GaitCurrentLegNr) = -TravelLengthZ/2
-      GaitRotY(GaitCurrentLegNr) = -TravelRotationY/2
-  	ELSE
+  ;Optional Half heigth Rear (2, 3, 5 lifted positions)
+  ELSEIF ((NrLiftedPos=2 & GaitStep=GaitLegNr(GaitCurrentLegNr)) | (NrLiftedPos>=3 & (GaitStep=GaitLegNr(GaitCurrentLegNr)-1 | GaitStep=GaitLegNr(GaitCurrentLegNr)+(StepsInGait-1)))) & TravelRequest
+	GaitPosX(GaitCurrentLegNr) = -TravelLengthX/LiftDivFactor
+    GaitPosY(GaitCurrentLegNr) = -3*LegLiftHeight/(3+HalfLiftHeigth) ; Easier to shift between div factor: /1 (3/3), /2 (3/6) and 3/4
+    GaitPosZ(GaitCurrentLegNr) = -TravelLengthZ/LiftDivFactor
+    GaitRotY(GaitCurrentLegNr) = -TravelRotationY/LiftDivFactor
   	  
-	  ;Optional half heigth front
-      IF (NrLiftedPos>=2) & (GaitStep=GaitLegNr(GaitCurrentLegNr)+1 | GaitStep=GaitLegNr(GaitCurrentLegNr)-(StepsInGait-1)) & GaitInMotion THEN
-        GaitPosX(GaitCurrentLegNr) = TravelLengthX/2
-        GaitPosY(GaitCurrentLegNr) = -LegLiftHeight/(HalfLiftHeigth+1)
-        GaitPosZ(GaitCurrentLegNr) = TravelLengthZ/2
-        GaitRotY(GaitCurrentLegNr) = TravelRotationY/2
-      ELSE  	  
+  ;Optional Half heigth front (2, 3, 5 lifted positions)
+  ELSEIF (NrLiftedPos>=2) & (GaitStep=GaitLegNr(GaitCurrentLegNr)+1 | GaitStep=GaitLegNr(GaitCurrentLegNr)-(StepsInGait-1)) & TravelRequest
+    GaitPosX(GaitCurrentLegNr) = TravelLengthX/LiftDivFactor
+    GaitPosY(GaitCurrentLegNr) = -3*LegLiftHeight/(3+HalfLiftHeigth) ; Easier to shift between div factor: /1 (3/3), /2 (3/6) and 3/4
+    GaitPosZ(GaitCurrentLegNr) = TravelLengthZ/LiftDivFactor
+    GaitRotY(GaitCurrentLegNr) = TravelRotationY/LiftDivFactor
 
-      	;Leg front down position
-      	IF (GaitStep=GaitLegNr(GaitCurrentLegNr)+NrLiftedPos | GaitStep=GaitLegNr(GaitCurrentLegNr)-(StepsInGait-NrLiftedPos)) & GaitPosY(GaitCurrentLegNr)<0 THEN
-	      GaitPosX(GaitCurrentLegNr) = TravelLengthX/2
-          GaitPosZ(GaitCurrentLegNr) = TravelLengthZ/2
-          GaitRotY(GaitCurrentLegNr) = TravelRotationY/2      	
-          GaitPosY(GaitCurrentLegNr) = 0	;Only move leg down at once if terrain adaption is turned off
+  ;Optional Half heigth Rear 5 LiftedPos (5 lifted positions)
+  ELSEIF ((NrLiftedPos=5 & (GaitStep=GaitLegNr(GaitCurrentLegNr)-2 ))) & TravelRequest
+	GaitPosX(GaitCurrentLegNr) = -TravelLengthX/2
+    GaitPosY(GaitCurrentLegNr) = -LegLiftHeight/2
+    GaitPosZ(GaitCurrentLegNr) = -TravelLengthZ/2
+    GaitRotY(GaitCurrentLegNr) = -TravelRotationY/2
+  	  		
+  ;Optional Half heigth Front 5 LiftedPos (5 lifted positions)
+  ELSEIF (NrLiftedPos=5) & (GaitStep=GaitLegNr(GaitCurrentLegNr)+2 | GaitStep=GaitLegNr(GaitCurrentLegNr)-(StepsInGait-2)) & TravelRequest
+    GaitPosX(GaitCurrentLegNr) = TravelLengthX/2
+    GaitPosY(GaitCurrentLegNr) = -LegLiftHeight/2
+    GaitPosZ(GaitCurrentLegNr) = TravelLengthZ/2
+    GaitRotY(GaitCurrentLegNr) = TravelRotationY/2
 
-      	;Move body forward      
-      	ELSE
-          GaitPosX(GaitCurrentLegNr) = GaitPosX(GaitCurrentLegNr) - (TravelLengthX/TLDivFactor)     
-          GaitPosY(GaitCurrentLegNr) = 0  
-          GaitPosZ(GaitCurrentLegNr) = GaitPosZ(GaitCurrentLegNr) - (TravelLengthZ/TLDivFactor)
-          GaitRotY(GaitCurrentLegNr) = GaitRotY(GaitCurrentLegNr) - (TravelRotationY/TLDivFactor)
-        ENDIF
-      ENDIF
-    ENDIF
+  ;Leg front down position
+  ELSEIF (GaitStep=GaitLegNr(GaitCurrentLegNr)+NrLiftedPos | GaitStep=GaitLegNr(GaitCurrentLegNr)-(StepsInGait-NrLiftedPos)) & GaitPosY(GaitCurrentLegNr)<0
+    GaitPosX(GaitCurrentLegNr) = TravelLengthX/2
+    GaitPosZ(GaitCurrentLegNr) = TravelLengthZ/2
+    GaitRotY(GaitCurrentLegNr) = TravelRotationY/2      	
+    GaitPosY(GaitCurrentLegNr) = 0	;Only move leg down at once if terrain adaption is turned off
+
+  ;Move body forward      
+  ELSE
+    GaitPosX(GaitCurrentLegNr) = GaitPosX(GaitCurrentLegNr) - (TravelLengthX/TLDivFactor)     
+    GaitPosY(GaitCurrentLegNr) = 0  
+    GaitPosZ(GaitCurrentLegNr) = GaitPosZ(GaitCurrentLegNr) - (TravelLengthZ/TLDivFactor)
+    GaitRotY(GaitCurrentLegNr) = GaitRotY(GaitCurrentLegNr) - (TravelRotationY/TLDivFactor)
   ENDIF
    
   ;Advance to the next step
@@ -788,22 +825,23 @@ return
 ;[BalCalcOneLeg]
 BalLegNr var nib
 BalCalcOneLeg [PosX, PosZ, PosY, BalLegNr]
-  ;Calculating totals from center of the body to the feet
-  TotalZ = cOffsetZ(BalLegNr)+PosZ
-  TotalX = cOffsetX(BalLegNr)+PosX
-  TotalY = 150 + PosY' using the value 150 to lower the centerpoint of rotation 'BodyPosY +
+  ;Calculating centerpoint (of rotation) of the body to the feet
+  CPR_Z = cOffsetZ(BalLegNr)+PosZ
+  CPR_X = cOffsetX(BalLegNr)+PosX
+  CPR_Y = 150 + PosY' using the value 150 to lower the centerpoint of rotation 'BodyPosY +
   TotalTransY = TotalTransY + PosY
-  TotalTransZ = TotalTransZ + TotalZ
-  TotalTransX = TotalTransX + TotalX
+  TotalTransZ = TotalTransZ + CPR_Z
+  TotalTransX = TotalTransX + CPR_X
   
-  gosub GetATan2 [TotalX, TotalZ]
-  TotalYbal =  TotalYbal + (ATan4*180) / 31415
+  gosub GetATan2 [CPR_X, CPR_Z]
+  TotalYbal1 =  TotalYbal1 + (ATan4*1800) / 31415
+
     
-  gosub GetATan2 [TotalX, TotalY]
-  TotalZbal = TotalZbal + ((ATan4*180) / 31415) -90 'Rotate balance circle 90 deg
+  gosub GetATan2 [CPR_X, CPR_Y]
+  TotalZbal1 = TotalZbal1 + ((ATan4*1800) / 31415) -900 'Rotate balance circle 90 deg
   
-  gosub GetATan2 [TotalZ, TotalY]
-  TotalXbal = TotalXbal + ((ATan4*180) / 31415) - 90 'Rotate balance circle 90 deg
+  gosub GetATan2 [CPR_Z, CPR_Y]
+  TotalXbal1 = TotalXbal1 + ((ATan4*1800) / 31415) - 900 'Rotate balance circle 90 deg
   
 return
 ;--------------------------------------------------------------------
@@ -813,23 +851,23 @@ BalanceBody:
 	TotalTransX = TotalTransX/6
 	TotalTransY = TotalTransY/6
 
-	if TotalYbal > 0 then		'Rotate balance circle by +/- 180 deg
-		TotalYbal = TotalYbal - 180
+	if TotalYbal1 > 0 then		'Rotate balance circle by +/- 180 deg
+		TotalYbal1 = TotalYbal1 - 1800
 	else
-		TotalYbal = TotalYbal + 180	
+		TotalYbal1 = TotalYbal1 + 1800
 	endif
-	if TotalZbal < -180 then	'Compensate for extreme balance positions that causes owerflow
-		TotalZbal = TotalZbal + 360
+	if TotalZbal1 < -1800 then	'Compensate for extreme balance positions that causes owerflow
+		TotalZbal1 = TotalZbal1 + 3600
 	endif
 	
-	if TotalXbal < -180 then	'Compensate for extreme balance positions that causes owerflow
-		TotalXbal = TotalXbal + 360
+	if TotalXbal1 < -1800 then	'Compensate for extreme balance positions that causes owerflow
+		TotalXbal1 = TotalXbal1 + 3600
 	endif
 	
 	;Balance rotation
-	TotalYBal = -TotalYbal/6
-	TotalXBal = -TotalXbal/6
-	TotalZBal = TotalZbal/6
+	TotalYBal1 = -TotalYbal1/6
+	TotalXBal1 = -TotalXbal1/6
+	TotalZBal1 = TotalZbal1/6
 
 return
 ;--------------------------------------------------------------------
@@ -929,42 +967,38 @@ return Atan4
 ;CosB           	- Cos buffer for BodyRotX
 ;SinG          		- Sin buffer for BodyRotZ
 ;CosG           	- Cos buffer for BodyRotZ
-;BodyIKPosX         - Output Position X of feet with Rotation 
-;BodyIKPosY         - Output Position Y of feet with Rotation 
-;BodyIKPosZ         - Output Position Z of feet with Rotation
-BodyIKLeg var nib
-BodyIK [PosX, PosZ, PosY, RotationY, BodyIKLeg] 
+;BodyFKPosX         - Output Position X of feet with Rotation 
+;BodyFKPosY         - Output Position Y of feet with Rotation 
+;BodyFKPosZ         - Output Position Z of feet with Rotation
+BodyFKLeg var nib
+BodyFK [PosX, PosZ, PosY, RotationY, BodyFKLeg] 
 
   ;Calculating totals from center of the body to the feet 
-  TotalZ = cOffsetZ(BodyIKLeg)+PosZ 
-  TotalX = cOffsetX(BodyIKLeg)+PosX 
-  ;PosY are equal to a "TotalY" 
+  CPR_X = cOffsetX(BodyFKLeg)+PosX + BodyRotOffsetX
+  CPR_Y = PosY + BodyRotOffsetY ; Define centerpoint for rotation along the Y-axis
+  CPR_Z = cOffsetZ(BodyFKLeg) + PosZ + BodyRotOffsetZ
   
   ;Successive global rotation matrix: 
   ;Math shorts for rotation: Alfa (A) = Xrotate, Beta (B) = Zrotate, Gamma (G) = Yrotate 
   ;Sinus Alfa = sinA, cosinus Alfa = cosA. and so on... 
   
   ;First calculate sinus and cosinus for each rotation: 
-  GOSUB GetSinCos [(BodyRotX+TotalXBal)*c1DEC] 
+  GOSUB GetSinCos [BodyRotX1+TotalXBal1] 
   SinG4 = Sin4
   CosG4 = Cos4
   
-  GOSUB GetSinCos [(BodyRotZ+TotalZBal)*c1DEC] 
+  GOSUB GetSinCos [BodyRotZ1+TotalZBal1] 
   SinB4 = Sin4
   CosB4 = Cos4
   
-  GOSUB GetSinCos [(BodyRotY+RotationY+TotalYBal)*c1DEC] 
+  GOSUB GetSinCos [BodyRotY1+(RotationY*c1DEC)+TotalYBal1] 
   SinA4 = Sin4
   CosA4 = Cos4
 
   ;Calcualtion of rotation matrix: 
-  ;BodyIKPosX = TotalX - (TotalX*CosA*CosB - TotalZ*CosB*SinA + PosY*SinB)  
-  ;BodyIKPosZ = TotalZ - (TotalX*CosG*SinA + TotalX*CosA*SinB*SinG + TotalZ*CosA*CosG - TotalZ*SinA*SinB*SinG - PosY*CosB*SinG)   
-  ;BodyIKPosY = PosY   - (TotalX*SinA*SinG - TotalX*CosA*CosG*SinB + TotalZ*CosA*SinG + TotalZ*CosG*SinA*SinB + PosY*CosB*CosG) 
-  BodyIKPosX = (TotalX*c2DEC - ( TotalX*c2DEC*CosA4/c4DEC*CosB4/c4DEC - TotalZ*c2DEC*CosB4/c4DEC*SinA4/c4DEC + PosY*c2DEC*SinB4/c4DEC ))/c2DEC
-  BodyIKPosZ = (TotalZ*c2DEC - ( TotalX*c2DEC*CosG4/c4DEC*SinA4/c4DEC + TotalX*c2DEC*CosA4/c4DEC*SinB4/c4DEC*SinG4/c4DEC + TotalZ*c2DEC*CosA4/c4DEC*CosG4/c4DEC - TotalZ*c2DEC*SinA4/c4DEC*SinB4/c4DEC*SinG4/c4DEC - PosY*c2DEC*CosB4/c4DEC*SinG4/c4DEC ))/c2DEC
-  BodyIKPosY = (PosY  *c2DEC - ( TotalX*c2DEC*SinA4/c4DEC*SinG4/c4DEC - TotalX*c2DEC*CosA4/c4DEC*CosG4/c4DEC*SinB4/c4DEC + TotalZ*c2DEC*CosA4/c4DEC*SinG4/c4DEC + TotalZ*c2DEC*CosG4/c4DEC*SinA4/c4DEC*SinB4/c4DEC + PosY*c2DEC*CosB4/c4DEC*CosG4/c4DEC ))/c2DEC
-  
+  BodyFKPosX = (CPR_X*c2DEC - ( CPR_X*c2DEC*CosA4/c4DEC*CosB4/c4DEC - CPR_Z*c2DEC*CosB4/c4DEC*SinA4/c4DEC + CPR_Y*c2DEC*SinB4/c4DEC ))/c2DEC
+  BodyFKPosZ = (CPR_Z*c2DEC - ( CPR_X*c2DEC*CosG4/c4DEC*SinA4/c4DEC + CPR_X*c2DEC*CosA4/c4DEC*SinB4/c4DEC*SinG4/c4DEC + CPR_Z*c2DEC*CosA4/c4DEC*CosG4/c4DEC - CPR_Z*c2DEC*SinA4/c4DEC*SinB4/c4DEC*SinG4/c4DEC - CPR_Y*c2DEC*CosB4/c4DEC*SinG4/c4DEC ))/c2DEC
+  BodyFKPosY = (CPR_Y  *c2DEC - ( CPR_X*c2DEC*SinA4/c4DEC*SinG4/c4DEC - CPR_X*c2DEC*CosA4/c4DEC*CosG4/c4DEC*SinB4/c4DEC + CPR_Z*c2DEC*CosA4/c4DEC*SinG4/c4DEC + CPR_Z*c2DEC*CosG4/c4DEC*SinA4/c4DEC*SinB4/c4DEC + CPR_Y*c2DEC*CosB4/c4DEC*CosG4/c4DEC ))/c2DEC
 return 
 ;--------------------------------------------------------------------
 ;[LEG INVERSE KINEMATICS] Calculates the angles of the coxa, femur and tibia for the given position of the feet
@@ -987,31 +1021,74 @@ LegIK [IKFeetPosX, IKFeetPosY, IKFeetPosZ, LegIKLegNr]
 	;Length between the Coxa and tars (foot)
 	IKFeetPosXZ = XYhyp2/c2DEC
 	
+	; Some legs may have the 4th DOF and some may not, so handle this here...
+#ifdef c4DOF
+	IF cTarsLength(LegIKLegNr) THEN		; This leg has the 4th degree?
+	  ;Calc the TarsToGroundAngle1:
+	  TarsToGroundAngle1 = -cTarsConst + cTarsMulti*IKFeetPosY + (IKFeetPosXZ*cTarsFactorA)/c1DEC - ((IKFeetPosXZ*IKFeetPosY)/(cTarsFactorB))
+	  IF IKFeetPosY < 0 THEN ;Always compensate TarsToGroundAngle1 when IKFeetPosY it goes below zero
+	    TarsToGroundAngle1 = TarsToGroundAngle1 - ((IKFeetPosY*cTarsFactorC)/c1DEC); TGA base, overall rule
+	  ENDIF
+	  IF TarsToGroundAngle1 > 400 THEN ;
+	    TGA_B_H3 = 200 + (TarsToGroundAngle1/2)
+	  ELSE
+	    TGA_B_H3 = TarsToGroundAngle1
+	  ENDIF
+	  IF TarsToGroundAngle1 > 300 THEN ;
+	    TGA_A_H4 = 240 + (TarsToGroundAngle1/5)
+	  ELSE
+	    TGA_A_H4 = TarsToGroundAngle1
+	  ENDIF
+	  IF IKFeetPosY > 0 THEN ;Only compensate the TarsToGroundAngle1 when it exceed 30 deg (A, H4 PEP note)
+	    TarsToGroundAngle1 = TGA_A_H4
+	  ELSEIF ((IKFeetPosY <= 0) & (IKFeetPosY > -10)); linear transition between case H3 and H4 (from PEP: H4-K5*(H3-H4))
+	    TarsToGroundAngle1 = (TGA_A_H4 -((IKFeetPosY*(TGA_B_H3-TGA_A_H4))/c1DEC))
+	  ELSE ;IKFeetPosY <= -10, Only compensate TGA1 when it exceed 40 deg
+	    TarsToGroundAngle1 = TGA_B_H3
+	  ENDIF
+	  ;Calc Tars Offsets:
+	  GOSUB GetSinCos [TarsToGroundAngle1] 
+	  TarsOffsetXZ = (Sin4*cTarsLength(LegIKLegNr))/c4DEC
+	  TarsOffsetY = (Cos4*cTarsLength(LegIKLegNr))/c4DEC	
+	ELSE
+	  TarsOffsetXZ = 0		; If the leg has no tar zero this off
+	  TarsOffsetY = 0		;Vector value / The 2 DOF IK calcs (femur and tibia) are based upon these vectors
+    ENDIF		
+#endif
+	
 	;Using GetAtan2 for solving IKA1 and IKSW
 	;IKA14 - Angle between SW line and the ground in radians
-	GOSUB GetATan2 [IKFeetPosY, IKFeetPosXZ-cCoxaLength], IKA14
+	GOSUB GetATan2 [IKFeetPosY-TarsOffsetY, IKFeetPosXZ-cCoxaLength(LegIKLegNr)-TarsOffsetXZ], IKA14
+
 	;IKSW2 - Length between femur axis and tars
 	IKSW2 = XYhyp2
 	
 	;IKA2 - Angle of the line S>W with respect to the femur in radians
-	Temp1 = (((cFemurLength*cFemurLength) - (cTibiaLength*cTibiaLength))*c4DEC + (IKSW2*IKSW2))
-	Temp2 = ((2*cFemurlength)*c2DEC * IKSW2)
+	Temp1 = (((cFemurLength(LegIKLegNr)*cFemurLength(LegIKLegNr)) - (cTibiaLength(LegIKLegNr)*cTibiaLength(LegIKLegNr)))*c4DEC + (IKSW2*IKSW2))
+	Temp2 = ((2*cFemurLength(LegIKLegNr))*c2DEC * IKSW2)
 	GOSUB GetArcCos [Temp1 / (Temp2/c4DEC) ], IKA24	
 	
 	;IKFemurAngle
-	FemurAngle1(LegIKLegNr) = -(IKA14 + IKA24) * 180 / 3141 + 900
+	FemurAngle1(LegIKLegNr) = -(IKA14 + IKA24) * 180 / 3141 + 900 + cFemurHornOffset1(LegIKLegNr)
 
 	;IKTibiaAngle
-	Temp1 = (((cFemurLength*cFemurLength) + (cTibiaLength*cTibiaLength))*c4DEC - (IKSW2*IKSW2))
-	Temp2 = (2*cFemurlength*cTibiaLength)
+	Temp1 = (((cFemurLength(LegIKLegNr)*cFemurLength(LegIKLegNr)) + (cTibiaLength(LegIKLegNr)*cTibiaLength(LegIKLegNr)))*c4DEC - (IKSW2*IKSW2))
+	Temp2 = (2*cFemurLength(LegIKLegNr)*cTibiaLength(LegIKLegNr))
 	GOSUB GetArcCos [Temp1 / Temp2]
 	TibiaAngle1(LegIKLegNr) = -(900-AngleRad4*180/3141)
 
+#ifdef c4DOF
+	IF cTarsLength(LegIKLegNr) THEN		; This leg has the 4th degree?
+  	  ;Tars angle
+	  TarsAngle1(LegIKLegNr) = (TarsToGroundAngle1 + FemurAngle1(LegIKLegNr) - TibiaAngle1(LegIKLegNr)) + cTarsHornOffset1(LegIKLegNr)
+	ENDIF
+#endif
+
 	;Set the Solution quality	
-	IF(IKSW2 < (cFemurLength+cTibiaLength-30)*c2DEC) THEN
+	IF(IKSW2 < (cFemurLength(LegIKLegNr)+cTibiaLength(LegIKLegNr)-30)*c2DEC) THEN
 		IKSolution = 1
 	ELSE
-		IF(IKSW2 < (cFemurLength+cTibiaLength)*c2DEC) THEN
+		IF(IKSW2 < (cFemurLength(LegIKLegNr)+cTibiaLength(LegIKLegNr))*c2DEC) THEN
 			IKSolutionWarning = 1
 		ELSE
 			IKSolutionError = 1	
@@ -1023,75 +1100,53 @@ return
 CheckAngles:
 
   for LegIndex = 0 to 5
-    CoxaAngle1(LegIndex)  = (CoxaAngle1(LegIndex)  min cCoxaMin1(LegIndex)) max cCoxaMax1(LegIndex)
+    CoxaAngle1(LegIndex)  = (CoxaAngle1(LegIndex)  min cCoxaMin1(LegIndex))  max cCoxaMax1(LegIndex)
     FemurAngle1(LegIndex) = (FemurAngle1(LegIndex) min cFemurMin1(LegIndex)) max cFemurMax1(LegIndex)
-    TibiaAngle1(LegIndex) = (TibiaAngle1(LegIndex) min cTibiaMin1(LegIndex))  max cTibiaMax1(LegIndex)
+    TibiaAngle1(LegIndex) = (TibiaAngle1(LegIndex) min cTibiaMin1(LegIndex)) max cTibiaMax1(LegIndex)
+#ifdef c4DOF
+	IF cTarsLength(LegIndex) THEN		; This leg has the 4th degree?
+	  TarsAngle1(LegIndex) =  (TarsAngle1(LegIndex)  min cTarsMin1(LegIndex))  max cTarsMax1(LegIndex)
+	ENDIF
+#endif
   next
 
 return
 ;--------------------------------------------------------------------
-;[SERVO DRIVER] Updates the positions of the servos
-ServoDriver:
+;[GET PWM VALUES]
+; Calculates the PWM values for the given Leg
+cPwmDiv      con 991 ;old 1059;
+cPFConst     con 592 ;old 650 ; 900*(1000/cPwmDiv)+cPFConst must always be 1500
+               ;A PWM/deg factor of 10,09 give cPwmDiv = 991 and cPFConst = 592
+               ;For a modified 5645 (to 180 deg travel): cPwmDiv = 1500 and cPFConst = 900.
+CoxaPWM var word
+FemurPWM var word
+TibiaPWM var word
+#ifdef c4DOF
+TarsPWM var word
+#endif
 
-  ;Update Right Legs
-  for LegIndex = 0 to 2
-    serout cSSC_OUT, cSSC_BAUD, ["#",dec cCoxaPin(LegIndex) ,"P",dec (-CoxaAngle1(LegIndex) +900)*1000/1059+650]
-    serout cSSC_OUT, cSSC_BAUD, ["#",dec cFemurPin(LegIndex),"P",dec (-FemurAngle1(LegIndex)+900)*1000/1059+650]
-    serout cSSC_OUT, cSSC_BAUD, ["#",dec cTibiaPin(LegIndex),"P",dec (-TibiaAngle1(LegIndex)+900)*1000/1059+650]  
-  next
-  
-  ;Update Left Legs
-  for LegIndex = 3 to 5
-    serout cSSC_OUT, cSSC_BAUD, ["#",dec cCoxaPin(LegIndex) ,"P",dec (CoxaAngle1(LegIndex) +900)*1000/1059+650]
-    serout cSSC_OUT, cSSC_BAUD, ["#",dec cFemurPin(LegIndex),"P",dec (FemurAngle1(LegIndex)+900)*1000/1059+650]
-    serout cSSC_OUT, cSSC_BAUD, ["#",dec cTibiaPin(LegIndex),"P",dec (TibiaAngle1(LegIndex)+900)*1000/1059+650]  
-  next  
+GetPWMValues [LegIndex]
 
-  ;Send <CR>
-  serout cSSC_OUT, cSSC_BAUD, ["T",dec SSCTime,13]
-
-  PrevSSCTime = SSCTime
+   ;Update Right Legs
+    if LegIndex <= 2 then
+      CoxaPWM =  (-CoxaAngle1(LegIndex) +900)*1000/cPwmDiv+cPFConst
+      FemurPWM = (-FemurAngle1(LegIndex)+900)*1000/cPwmDiv+cPFConst
+      TibiaPWM = (-TibiaAngle1(LegIndex)+900)*1000/cPwmDiv+cPFConst
+#ifdef c4DOF
+	IF cTarsLength(LegIndex) THEN		; This leg has the 4th degree?
+      TarsPWM = (-TarsAngle1(LegIndex)+900)*1000/cPwmDiv+cPFConst
+    ENDIF
+#endif
+    else
+      ;Update Left Legs
+      CoxaPWM =  (CoxaAngle1(LegIndex) +900)*1000/cPwmDiv+cPFConst
+      FemurPWM = (FemurAngle1(LegIndex)+900)*1000/cPwmDiv+cPFConst
+      TibiaPWM = (TibiaAngle1(LegIndex)+900)*1000/cPwmDiv+cPFConst
+#ifdef c4DOF
+	IF cTarsLength(LegIndex) THEN		; This leg has the 4th degree?
+      TarsPWM = (TarsAngle1(LegIndex)+900)*1000/cPwmDiv+cPFConst
+	ENDIF
+#endif
+    endif
 return
-;--------------------------------------------------------------------
-;[FREE SERVOS] Frees all the servos
-FreeServos
-	for LegIndex = 0 to 31
-		serout cSSC_OUT, cSSC_BAUD, ["#",DEC LegIndex,"P0"]
-	next
-	serout cSSC_OUT, cSSC_BAUD, ["T200",13]	
-return
-;--------------------------------------------------------------------
-;[Handle TimerW interrupt]
-BEGINASMSUB
-HANDLE_TIMERW
-ASM{
-  push.w   r1							; save away register we will use
-  bclr #7,@TSRW:8						; clear the overflow bit in the Timer status word
-  mov.w @WTIMERWOVERFLOWCNT:16,r1		; We will increment the word that is the highword for a clock timer
-  inc.w #1,r1
-  mov.w r1, @WTIMERWOVERFLOWCNT:16
-  pop.w  r1								; restore our registers
-  rte									; and return    
-}
-return
-ENDASMSUB
-;-------------------------------------------------------------------------------------
-
-;[Simple function to get the current time and verify that no overflow happened]
-
-GetCurrentTime
-  nop      ; probably not needed, but to make sure we are in assembly mode
-  mov.w  @WTIMERWOVERFLOWCNT:16, e1
-  mov.w  @TCNT:16, r1
-  mov.w  @WTIMERWOVERFLOWCNT:16, r2
-  cmp.w  r2,e1							; make sure no overflow happened
-  beq           _GCT_RETURN:8			; no overflow, so return it
-
-  mov.w  @WTIMERWOVERFLOWCNT:16, e1
-  mov.w  @TCNT:16, r1
-
-_GCT_RETURN: 
-  mov.l  er1, @LCURRENTTIME:16
-
-return lCurrentTime						; switched back to basic
 ;--------------------------------------------------------------------
