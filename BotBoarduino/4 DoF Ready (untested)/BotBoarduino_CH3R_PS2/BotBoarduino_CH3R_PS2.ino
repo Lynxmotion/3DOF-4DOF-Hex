@@ -1,4 +1,3 @@
-//=============================================================================
 //Project Lynxmotion Phoenix
 //Description: Phoenix software
 //Software version: V2.0
@@ -554,7 +553,7 @@ void StartUpdateServos()
 
     for (LegIndex = 0; LegIndex <= 5; LegIndex++) {
 #ifdef c4DOF
-        g_ServoDriver.OutputServoInfoForLeg(LegIndex, CoxaAngle1[LegIndex], FemurAngle1[LegIndex], TibiaAngle1[LegIndex], sTarsAngle1[LegIndex]);
+        g_ServoDriver.OutputServoInfoForLeg(LegIndex, CoxaAngle1[LegIndex], FemurAngle1[LegIndex], TibiaAngle1[LegIndex], TarsAngle1[LegIndex]);
 #else
         g_ServoDriver.OutputServoInfoForLeg(LegIndex, CoxaAngle1[LegIndex], FemurAngle1[LegIndex], TibiaAngle1[LegIndex]);
 #endif      
