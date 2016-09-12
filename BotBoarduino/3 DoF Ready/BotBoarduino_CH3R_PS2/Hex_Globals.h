@@ -107,6 +107,9 @@ extern bool CheckVoltage(void);
 // debug handler...
 extern boolean g_fDBGHandleError;
 
+#ifdef c4DOF
+extern const byte cTarsLength[] PROGMEM;
+#endif
 
 #ifdef __AVR__
 #if not defined(UBRR1H)
