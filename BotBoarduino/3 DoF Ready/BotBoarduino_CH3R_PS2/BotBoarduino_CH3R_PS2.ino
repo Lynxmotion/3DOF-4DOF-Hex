@@ -510,7 +510,7 @@ void loop(void)
         
     } else {
         //Turn the bot off
-        if (g_InControlState.fPrev_HexOn || (AllDown= 0)) {
+        if (g_InControlState.fPrev_HexOn || (AllDown == 0)) {
             ServoMoveTime = 600;
             StartUpdateServos();
             g_ServoDriver.CommitServoDriver(ServoMoveTime);
